@@ -17,6 +17,8 @@ type Page struct {
 	Parent         Parent    `json:"parent"`
 	Archived       bool      `json:"archived"`
 	URL            string    `json:"url"`
+	Icon           *Icon     `json:"icon,omitempty"`
+	Cover          *Cover    `json:"cover,omitempty"`
 
 	// Properties differ between parent type.
 	// See the `UnmarshalJSON` method.
@@ -38,6 +40,7 @@ type DatabasePageProperties map[string]DatabasePageProperty
 type DatabasePageProperty struct {
 	ID   string               `json:"id,omitempty"`
 	Type DatabasePropertyType `json:"type,omitempty"`
+	Name string               `json:"name,omitempty"`
 
 	Title          []RichText      `json:"title,omitempty"`
 	RichText       []RichText      `json:"rich_text,omitempty"`
@@ -71,12 +74,57 @@ type CreatePageParams struct {
 
 	// Optionally, children blocks are added to the page.
 	Children []Block
+
+	Icon  *Icon
+	Cover *Cover
 }
 
+// UpdatePageParams is used for updating a page. At least one field should have
+// a non-empty value.
 type UpdatePageParams struct {
-	// Either DatabasePageProperties or Title must be not nil.
 	DatabasePageProperties *DatabasePageProperties
 	Title                  []RichText
+	Icon                   *Icon
+	Cover                  *Cover
+}
+
+// PagePropItem is used for a *single* property object value, e.g. for a `rich_text`
+// property, a single value of an array of rich text elements.
+// This type is used when fetching single properties.
+type PagePropItem struct {
+	Type DatabasePropertyType `json:"type"`
+
+	Title          RichText      `json:"title"`
+	RichText       RichText      `json:"rich_text"`
+	Number         float64       `json:"number"`
+	Select         SelectOptions `json:"select"`
+	MultiSelect    SelectOptions `json:"multi_select"`
+	Date           Date          `json:"date"`
+	Formula        FormulaResult `json:"formula"`
+	Relation       Relation      `json:"relation"`
+	Rollup         RollupResult  `json:"rollup"`
+	People         User          `json:"people"`
+	Files          File          `json:"files"`
+	Checkbox       bool          `json:"checkbox"`
+	URL            string        `json:"url"`
+	Email          string        `json:"email"`
+	PhoneNumber    string        `json:"phone_number"`
+	CreatedTime    time.Time     `json:"created_time"`
+	CreatedBy      User          `json:"created_by"`
+	LastEditedTime time.Time     `json:"last_edited_time"`
+	LastEditedBy   User          `json:"last_edited_by"`
+}
+
+// PagePropResponse contains a single database page property item or a list
+// of items. For rollup props with an aggregation, both a `results` array and a
+// `rollup` field is included.
+// See: https://developers.notion.com/reference/retrieve-a-page-property#rollup-properties
+type PagePropResponse struct {
+	PagePropItem
+
+	Results    []PagePropItem `json:"results"`
+	HasMore    bool           `json:"has_more"`
+	NextCursor string         `json:"next_cursor"`
 }
 
 // Value returns the underlying database page property value, based on its `type` field.
@@ -139,6 +187,16 @@ func (p CreatePageParams) Validate() error {
 	if p.ParentType == ParentTypePage && p.Title == nil {
 		return errors.New("title is required when parent type is page")
 	}
+	if p.Icon != nil {
+		if err := p.Icon.Validate(); err != nil {
+			return err
+		}
+	}
+	if p.Cover != nil {
+		if err := p.Cover.Validate(); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -148,6 +206,8 @@ func (p CreatePageParams) MarshalJSON() ([]byte, error) {
 		Parent     Parent      `json:"parent"`
 		Properties interface{} `json:"properties"`
 		Children   []Block     `json:"children,omitempty"`
+		Icon       *Icon       `json:"icon,omitempty"`
+		Cover      *Cover      `json:"cover,omitempty"`
 	}
 
 	var parent Parent
@@ -161,6 +221,8 @@ func (p CreatePageParams) MarshalJSON() ([]byte, error) {
 	dto := CreatePageParamsDTO{
 		Parent:   parent,
 		Children: p.Children,
+		Icon:     p.Icon,
+		Cover:    p.Cover,
 	}
 
 	if p.DatabasePageProperties != nil {
@@ -224,18 +286,29 @@ func (p *Page) UnmarshalJSON(b []byte) error {
 }
 
 func (p UpdatePageParams) Validate() error {
-	if p.DatabasePageProperties == nil && p.Title == nil {
-		return errors.New("either database page properties or title is required")
+	// At least one of the params must be set.
+	if p.DatabasePageProperties == nil && p.Title == nil && p.Icon == nil && p.Cover == nil {
+		return errors.New("at least one of database page properties, title, icon or cover is required")
+	}
+	if p.Icon != nil {
+		if err := p.Icon.Validate(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 func (p UpdatePageParams) MarshalJSON() ([]byte, error) {
 	type UpdatePageParamsDTO struct {
-		Properties interface{} `json:"properties"`
+		Properties interface{} `json:"properties,omitempty"`
+		Icon       *Icon       `json:"icon,omitempty"`
+		Cover      *Cover      `json:"cover,omitempty"`
 	}
 
-	var dto UpdatePageParamsDTO
+	dto := UpdatePageParamsDTO{
+		Icon:  p.Icon,
+		Cover: p.Cover,
+	}
 
 	if p.DatabasePageProperties != nil {
 		dto.Properties = p.DatabasePageProperties

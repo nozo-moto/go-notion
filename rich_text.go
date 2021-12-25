@@ -27,15 +27,21 @@ type Annotations struct {
 type Mention struct {
 	Type MentionType `json:"type"`
 
-	User     *User `json:"user,omitempty"`
-	Page     *ID   `json:"page,omitempty"`
-	Database *ID   `json:"database,omitempty"`
-	Date     *Date `json:"date,omitempty"`
+	User        *User        `json:"user,omitempty"`
+	Page        *ID          `json:"page,omitempty"`
+	Database    *ID          `json:"database,omitempty"`
+	Date        *Date        `json:"date,omitempty"`
+	LinkPreview *LinkPreview `json:"link_preview,omitempty"`
 }
 
 type Date struct {
-	Start DateTime  `json:"start"`
-	End   *DateTime `json:"end,omitempty"`
+	Start    DateTime  `json:"start"`
+	End      *DateTime `json:"end,omitempty"`
+	TimeZone *string   `json:"time_zone,omitempty"`
+}
+
+type LinkPreview struct {
+	URL string `json:"url"`
 }
 
 type Text struct {
@@ -64,10 +70,11 @@ const (
 )
 
 const (
-	MentionTypeUser     MentionType = "user"
-	MentionTypePage     MentionType = "page"
-	MentionTypeDatabase MentionType = "database"
-	MentionTypeDate     MentionType = "date"
+	MentionTypeUser        MentionType = "user"
+	MentionTypePage        MentionType = "page"
+	MentionTypeDatabase    MentionType = "database"
+	MentionTypeDate        MentionType = "date"
+	MentionTypeLinkPreview MentionType = "link_preview"
 )
 
 const (

@@ -13,7 +13,7 @@ import (
 
 const (
 	baseURL       = "https://api.notion.com/v1"
-	apiVersion    = "2021-05-13"
+	apiVersion    = "2021-08-16"
 	clientVersion = "0.0.0"
 )
 
@@ -162,6 +162,43 @@ func (c *Client) CreateDatabase(ctx context.Context, params CreateDatabaseParams
 	return db, nil
 }
 
+// UpdateDatabase updates a database.
+// See: https://developers.notion.com/reference/update-a-database
+func (c *Client) UpdateDatabase(ctx context.Context, databaseID string, params UpdateDatabaseParams) (updatedDB Database, err error) {
+	if err := params.Validate(); err != nil {
+		return Database{}, fmt.Errorf("notion: invalid database params: %w", err)
+	}
+
+	body := &bytes.Buffer{}
+
+	err = json.NewEncoder(body).Encode(params)
+	if err != nil {
+		return Database{}, fmt.Errorf("notion: failed to encode body params to JSON: %w", err)
+	}
+
+	req, err := c.newRequest(ctx, http.MethodPatch, "/databases/"+databaseID, body)
+	if err != nil {
+		return Database{}, fmt.Errorf("notion: invalid request: %w", err)
+	}
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return Database{}, fmt.Errorf("notion: failed to make HTTP request: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return Database{}, fmt.Errorf("notion: failed to update database: %w", parseErrorResponse(res))
+	}
+
+	err = json.NewDecoder(res.Body).Decode(&updatedDB)
+	if err != nil {
+		return Database{}, fmt.Errorf("notion: failed to parse HTTP response: %w", err)
+	}
+
+	return updatedDB, nil
+}
+
 // FindPageByID fetches a page by ID.
 // See: https://developers.notion.com/reference/get-page
 func (c *Client) FindPageByID(ctx context.Context, id string) (page Page, err error) {
@@ -225,9 +262,9 @@ func (c *Client) CreatePage(ctx context.Context, params CreatePageParams) (page 
 	return page, nil
 }
 
-// UpdatePageProps updates page property values for a page.
+// UpdatePage updates a page.
 // See: https://developers.notion.com/reference/patch-page
-func (c *Client) UpdatePageProps(ctx context.Context, pageID string, params UpdatePageParams) (page Page, err error) {
+func (c *Client) UpdatePage(ctx context.Context, pageID string, params UpdatePageParams) (page Page, err error) {
 	if err := params.Validate(); err != nil {
 		return Page{}, fmt.Errorf("notion: invalid page params: %w", err)
 	}
@@ -299,9 +336,46 @@ func (c *Client) FindBlockChildrenByID(ctx context.Context, blockID string, quer
 	return result, nil
 }
 
+// FindPagePropertyByID returns a page property.
+// See: https://developers.notion.com/reference/retrieve-a-page-property
+func (c *Client) FindPagePropertyByID(ctx context.Context, pageID, propID string, query *PaginationQuery) (result PagePropResponse, err error) {
+	req, err := c.newRequest(ctx, http.MethodGet, fmt.Sprintf("/pages/%v/properties/%v", pageID, propID), nil)
+	if err != nil {
+		return PagePropResponse{}, fmt.Errorf("notion: invalid request: %w", err)
+	}
+
+	if query != nil {
+		q := url.Values{}
+		if query.StartCursor != "" {
+			q.Set("start_cursor", query.StartCursor)
+		}
+		if query.PageSize != 0 {
+			q.Set("page_size", strconv.Itoa(query.PageSize))
+		}
+		req.URL.RawQuery = q.Encode()
+	}
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return PagePropResponse{}, fmt.Errorf("notion: failed to make HTTP request: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return PagePropResponse{}, fmt.Errorf("notion: failed to find page property: %w", parseErrorResponse(res))
+	}
+
+	err = json.NewDecoder(res.Body).Decode(&result)
+	if err != nil {
+		return PagePropResponse{}, fmt.Errorf("notion: failed to parse HTTP response: %w", err)
+	}
+
+	return result, nil
+}
+
 // AppendBlockChildren appends child content (blocks) to an existing block.
 // See: https://developers.notion.com/reference/patch-block-children
-func (c *Client) AppendBlockChildren(ctx context.Context, blockID string, children []Block) (block Block, err error) {
+func (c *Client) AppendBlockChildren(ctx context.Context, blockID string, children []Block) (result BlockChildrenResponse, err error) {
 	type PostBody struct {
 		Children []Block `json:"children"`
 	}
@@ -311,10 +385,36 @@ func (c *Client) AppendBlockChildren(ctx context.Context, blockID string, childr
 
 	err = json.NewEncoder(body).Encode(dto)
 	if err != nil {
-		return Block{}, fmt.Errorf("notion: failed to encode body params to JSON: %w", err)
+		return BlockChildrenResponse{}, fmt.Errorf("notion: failed to encode body params to JSON: %w", err)
 	}
 
 	req, err := c.newRequest(ctx, http.MethodPatch, fmt.Sprintf("/blocks/%v/children", blockID), body)
+	if err != nil {
+		return BlockChildrenResponse{}, fmt.Errorf("notion: invalid request: %w", err)
+	}
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return BlockChildrenResponse{}, fmt.Errorf("notion: failed to make HTTP request: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return BlockChildrenResponse{}, fmt.Errorf("notion: failed to append block children: %w", parseErrorResponse(res))
+	}
+
+	err = json.NewDecoder(res.Body).Decode(&result)
+	if err != nil {
+		return BlockChildrenResponse{}, fmt.Errorf("notion: failed to parse HTTP response: %w", err)
+	}
+
+	return result, nil
+}
+
+// FindBlockByID returns a single of block for a given block ID.
+// See: https://developers.notion.com/reference/retrieve-a-block
+func (c *Client) FindBlockByID(ctx context.Context, blockID string) (block Block, err error) {
+	req, err := c.newRequest(ctx, http.MethodGet, fmt.Sprintf("/blocks/%v", blockID), nil)
 	if err != nil {
 		return Block{}, fmt.Errorf("notion: invalid request: %w", err)
 	}
@@ -326,7 +426,7 @@ func (c *Client) AppendBlockChildren(ctx context.Context, blockID string, childr
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
-		return Block{}, fmt.Errorf("notion: failed to append block children: %w", parseErrorResponse(res))
+		return Block{}, fmt.Errorf("notion: failed to find block: %w", parseErrorResponse(res))
 	}
 
 	err = json.NewDecoder(res.Body).Decode(&block)
@@ -335,6 +435,65 @@ func (c *Client) AppendBlockChildren(ctx context.Context, blockID string, childr
 	}
 
 	return block, nil
+}
+
+// UpdateBlock updates a block.
+// See: https://developers.notion.com/reference/update-a-block
+func (c *Client) UpdateBlock(ctx context.Context, blockID string, block Block) (updatedBlock Block, err error) {
+	body := &bytes.Buffer{}
+
+	err = json.NewEncoder(body).Encode(block)
+	if err != nil {
+		return Block{}, fmt.Errorf("notion: failed to encode body params to JSON: %w", err)
+	}
+
+	req, err := c.newRequest(ctx, http.MethodPatch, "/blocks/"+blockID, body)
+	if err != nil {
+		return Block{}, fmt.Errorf("notion: invalid request: %w", err)
+	}
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return Block{}, fmt.Errorf("notion: failed to make HTTP request: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return Block{}, fmt.Errorf("notion: failed to update block: %w", parseErrorResponse(res))
+	}
+
+	err = json.NewDecoder(res.Body).Decode(&updatedBlock)
+	if err != nil {
+		return Block{}, fmt.Errorf("notion: failed to parse HTTP response: %w", err)
+	}
+
+	return updatedBlock, nil
+}
+
+// DeleteBlock sets `archived: true` on a (page) block object.
+// See: https://developers.notion.com/reference/delete-a-block
+func (c *Client) DeleteBlock(ctx context.Context, blockID string) (deletedBlock Block, err error) {
+	req, err := c.newRequest(ctx, http.MethodDelete, "/blocks/"+blockID, nil)
+	if err != nil {
+		return Block{}, fmt.Errorf("notion: invalid request: %w", err)
+	}
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return Block{}, fmt.Errorf("notion: failed to make HTTP request: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return Block{}, fmt.Errorf("notion: failed to delete block: %w", parseErrorResponse(res))
+	}
+
+	err = json.NewDecoder(res.Body).Decode(&deletedBlock)
+	if err != nil {
+		return Block{}, fmt.Errorf("notion: failed to parse HTTP response: %w", err)
+	}
+
+	return deletedBlock, nil
 }
 
 // FindUserByID fetches a user by ID.
@@ -353,6 +512,32 @@ func (c *Client) FindUserByID(ctx context.Context, id string) (user User, err er
 
 	if res.StatusCode != http.StatusOK {
 		return User{}, fmt.Errorf("notion: failed to find user: %w", parseErrorResponse(res))
+	}
+
+	err = json.NewDecoder(res.Body).Decode(&user)
+	if err != nil {
+		return User{}, fmt.Errorf("notion: failed to parse HTTP response: %w", err)
+	}
+
+	return user, nil
+}
+
+// FindCurrentUser fetches the current bot user based on authentication API key.
+// See: https://developers.notion.com/reference/get-self
+func (c *Client) FindCurrentUser(ctx context.Context) (user User, err error) {
+	req, err := c.newRequest(ctx, http.MethodGet, "/users/me", nil)
+	if err != nil {
+		return User{}, fmt.Errorf("notion: invalid request: %w", err)
+	}
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return User{}, fmt.Errorf("notion: failed to make HTTP request: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return User{}, fmt.Errorf("notion: failed to find current user: %w", parseErrorResponse(res))
 	}
 
 	err = json.NewDecoder(res.Body).Decode(&user)

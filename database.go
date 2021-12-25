@@ -12,9 +12,12 @@ type Database struct {
 	ID             string             `json:"id"`
 	CreatedTime    time.Time          `json:"created_time"`
 	LastEditedTime time.Time          `json:"last_edited_time"`
+	URL            string             `json:"url"`
 	Title          []RichText         `json:"title"`
 	Properties     DatabaseProperties `json:"properties"`
 	Parent         Parent             `json:"parent"`
+	Icon           *Icon              `json:"icon,omitempty"`
+	Cover          *Cover             `json:"cover,omitempty"`
 }
 
 // DatabaseProperties is a mapping of properties defined on a database.
@@ -38,12 +41,31 @@ type (
 		SyncedPropID   string `json:"synced_property_id,omitempty"`
 	}
 	RollupMetadata struct {
-		RelationPropName string `json:"relation_property_name,omitempty"`
-		RelationPropID   string `json:"relation_property_id,omitempty"`
-		RollupPropName   string `json:"rollup_property_name,omitempty"`
-		RollupPropID     string `json:"rollup_property_id,omitempty"`
-		Function         string `json:"function,omitempty"`
+		RelationPropName string         `json:"relation_property_name,omitempty"`
+		RelationPropID   string         `json:"relation_property_id,omitempty"`
+		RollupPropName   string         `json:"rollup_property_name,omitempty"`
+		RollupPropID     string         `json:"rollup_property_id,omitempty"`
+		Function         RollupFunction `json:"function,omitempty"`
 	}
+)
+
+type RollupFunction string
+
+const (
+	RollupFunctionCountAll          RollupFunction = "count_all"
+	RollupFunctionCountValues       RollupFunction = "count_values"
+	RollupFunctionCountUniqueValues RollupFunction = "count_unique_values"
+	RollupFunctionCountEmpty        RollupFunction = "count_empty"
+	RollupFunctionCountNotEmpty     RollupFunction = "count_not_empty"
+	RollupFunctionPercentEmpty      RollupFunction = "percent_empty"
+	RollupFunctionPercentNotEmpty   RollupFunction = "percent_not_empty"
+	RollupFunctionSum               RollupFunction = "sum"
+	RollupFunctionAverage           RollupFunction = "average"
+	RollupFunctionMedian            RollupFunction = "median"
+	RollupFunctionMin               RollupFunction = "min"
+	RollupFunctionMax               RollupFunction = "max"
+	RollupFunctionRange             RollupFunction = "range"
+	RollupFunctionShowOriginal      RollupFunction = "show_original"
 )
 
 type SelectOptions struct {
@@ -78,12 +100,17 @@ type People struct {
 }
 
 type File struct {
-	Name string `json:"name"`
+	Name string   `json:"name"`
+	Type FileType `json:"type"`
+
+	File     *FileFile     `json:"file,omitempty"`
+	External *FileExternal `json:"external,omitempty"`
 }
 
 type DatabaseProperty struct {
 	ID   string               `json:"id,omitempty"`
 	Type DatabasePropertyType `json:"type"`
+	Name string               `json:"name,omitempty"`
 
 	Title          *EmptyMetadata `json:"title,omitempty"`
 	RichText       *EmptyMetadata `json:"rich_text,omitempty"`
@@ -235,6 +262,8 @@ type CreateDatabaseParams struct {
 	ParentPageID string
 	Title        []RichText
 	Properties   DatabaseProperties
+	Icon         *Icon
+	Cover        *Cover
 }
 
 type (
@@ -279,7 +308,27 @@ const (
 	NumberFormatRuble            NumberFormat = "ruble"
 	NumberFormatRupee            NumberFormat = "rupee"
 	NumberFormatWon              NumberFormat = "won"
-	NumberformatYuan             NumberFormat = "yuan"
+	NumberFormatYuan             NumberFormat = "yuan"
+	NumberFormatHongKongDollar   NumberFormat = "hong_kong_dollar"
+	NumberFormatNewZealandDollar NumberFormat = "new_zealand_dollar"
+	NumberFormatKrona            NumberFormat = "krona"
+	NumberFormatNorwegianKrone   NumberFormat = "norwegian_krone"
+	NumberFormatMexicanPeso      NumberFormat = "mexican_peso"
+	NumberFormatRand             NumberFormat = "rand"
+	NumberFormatNewTaiwanDollar  NumberFormat = "new_taiwan_dollar"
+	NumberFormatDanishKrone      NumberFormat = "danish_krone"
+	NumberFormatZloty            NumberFormat = "zloty"
+	NumberFormatBaht             NumberFormat = "baht"
+	NumberFormatForint           NumberFormat = "forint"
+	NumberFormatKoruna           NumberFormat = "koruna"
+	NumberFormatShekel           NumberFormat = "shekel"
+	NumberFormatChileanPeso      NumberFormat = "chilean_peso"
+	NumberFormatPhilippinePeso   NumberFormat = "philippine_peso"
+	NumberFormatDirham           NumberFormat = "dirham"
+	NumberFormatColombianPeso    NumberFormat = "colombian_peso"
+	NumberFormatRiyal            NumberFormat = "riyal"
+	NumberFormatRinggit          NumberFormat = "ringgit"
+	NumberFormatLeu              NumberFormat = "leu"
 
 	// Formula result type enums.
 	FormulaResultTypeString  FormulaResultType = "string"
@@ -362,6 +411,16 @@ func (p CreateDatabaseParams) Validate() error {
 	if p.Properties == nil {
 		return errors.New("database properties are required")
 	}
+	if p.Icon != nil {
+		if err := p.Icon.Validate(); err != nil {
+			return err
+		}
+	}
+	if p.Cover != nil {
+		if err := p.Cover.Validate(); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -372,6 +431,8 @@ func (p CreateDatabaseParams) MarshalJSON() ([]byte, error) {
 		Parent     Parent             `json:"parent"`
 		Title      []RichText         `json:"title,omitempty"`
 		Properties DatabaseProperties `json:"properties"`
+		Icon       *Icon              `json:"icon,omitempty"`
+		Cover      *Cover             `json:"cover,omitempty"`
 	}
 
 	parent := Parent{
@@ -383,7 +444,36 @@ func (p CreateDatabaseParams) MarshalJSON() ([]byte, error) {
 		Parent:     parent,
 		Title:      p.Title,
 		Properties: p.Properties,
+		Icon:       p.Icon,
+		Cover:      p.Cover,
 	}
 
 	return json.Marshal(dto)
+}
+
+// UpdateDatabaseParams are the params used for updating a database.
+type UpdateDatabaseParams struct {
+	Title      []RichText                   `json:"title,omitempty"`
+	Properties map[string]*DatabaseProperty `json:"properties,omitempty"`
+	Icon       *Icon                        `json:"icon,omitempty"`
+	Cover      *Cover                       `json:"cover,omitempty"`
+}
+
+// Validate validates params for updating a database.
+func (p UpdateDatabaseParams) Validate() error {
+	if len(p.Title) == 0 && len(p.Properties) == 0 {
+		return errors.New("either title or properties are required")
+	}
+	if p.Icon != nil {
+		if err := p.Icon.Validate(); err != nil {
+			return err
+		}
+	}
+	if p.Cover != nil {
+		if err := p.Cover.Validate(); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
